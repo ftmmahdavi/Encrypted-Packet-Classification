@@ -1,0 +1,243 @@
+!pip install pyshark
+!pip install scapy
+###############################################
+from google.colab import files
+uploaded = files.upload()
+##############################################
+import pyshark
+cap=pyshark.FileCapture('aim_chat_3a.pcap')
+cap
+###########################################
+from scapy.all import sniff
+num_of_packets_to_sniff = 100
+pcap = sniff(count=num_of_packets_to_sniff)
+#rdpcap returns packet list
+## packetlist object can be enumerated 
+print(type(pcap))
+print(len(pcap))
+print(pcap)
+pcap[0]
+##################################################
+from scapy.all import * # Packet manipulation
+import pandas as pd # Pandas - Create and Manipulate DataFrames
+import numpy as np # Math Stuff (don't worry only used for one line :] )
+import binascii # Binary to Ascii 
+import seaborn as sns
+sns.set(color_codes=True)
+%matplotlib inline
+
+'''Use common fields in IP Packet to perform exploratory analysis on PCAP'''
+###################################################
+# rdpcap used to Read Pcap
+from scapy.all import rdpcap
+pcap =pcap+rdpcap('aim_chat_3a.pcap')
+######################################################
+# ETHERNET -> Internet Protocol -> Layer 4 Segments
+# We're only interested in Layers 3 (IP) and 4 (TCP AND UDP) 
+## We'll parse those two layers and the layer 4 payload
+## When capturing we capture layer 2 frames and beyond
+
+# Retrieving a single item from packet list
+ethernet_frame = pcap[101]
+ip_packet = ethernet_frame.payload
+segment = ip_packet.payload
+data = segment.payload # Retrieve payload that comes after layer 4
+
+# Observe that we just popped off previous layer header
+print(ethernet_frame.summary())
+print(ip_packet.summary())
+print(segment.summary())
+print(data.summary()) # If blank, empty object
+################################
+# Complete depiction of paket
+## Achieving understanding that these are the fields will enable the ability 
+## to ask the data more meaningful questions ie) type of layer 4 segment is defined in layer 3 packet
+ethernet_frame.show()
+
+# Understanding the object types in scapy
+print(type(ethernet_frame))
+print(type(ip_packet))
+print(type(segment))
+
+# Packets can be filtered on layers ie) ethernet_frame[scapy.layers.l2.Ether]
+ethernet_type = type(ethernet_frame)
+ip_type = type(ip_packet)
+tcp_type = type(segment)
+print("Ethernet",pcap[ethernet_type])
+print("IP", pcap[ip_type])
+print("TCP", pcap[tcp_type])
+##############################################3
+# Scapy provides this via import statements
+from scapy.layers.l2 import Ether
+from scapy.layers.inet import IP
+from scapy.layers.inet import TCP, UDP
+
+print("UDP", pcap[UDP])
+
+#Collect field names from IP/TCP/UDP (These will be columns in DF)
+ip_fields = [field.name for field in IP().fields_desc]
+tcp_fields = [field.name for field in TCP().fields_desc]
+udp_fields = [field.name for field in UDP().fields_desc]
+
+dataframe_fields = ip_fields + ['time'] + tcp_fields + ['payload','payload_raw','payload_hex']
+##################################################
+# Create blank DataFrame
+df = pd.DataFrame(columns=dataframe_fields)
+for packet in pcap[IP]:
+    # Field array for each row of DataFrame
+    field_values = []
+    # Add all IP fields to dataframe
+    for field in ip_fields:
+        if field == 'options':
+            # Retrieving number of options defined in IP Header
+            field_values.append(len(packet[IP].fields[field]))
+        else:
+            field_values.append(packet[IP].fields[field])
+    
+    field_values.append(packet.time)
+    
+    layer_type = type(packet[IP].payload)
+    for field in tcp_fields:
+        try:
+            if field == 'options':
+                field_values.append(len(packet[layer_type].fields[field]))
+            else:
+                field_values.append(packet[layer_type].fields[field])
+        except:
+            field_values.append(None)
+    
+    # Append payload
+    field_values.append(len(packet[layer_type].payload))
+    field_values.append(packet[layer_type].payload.original)
+    field_values.append(binascii.hexlify(packet[layer_type].payload.original))
+    # Add row to DF
+    df_append = pd.DataFrame([field_values], columns=dataframe_fields)
+    df = pd.concat([df, df_append], axis=0)
+# Reset Index
+df = df.reset_index()
+# Drop old index column
+df = df.drop(columns="index")
+###################################
+import numpy as np
+# Retrieve first row from DataFrame
+print(df.iloc[0])
+
+print(df.shape)
+
+# Return first 5 rows
+df.head()
+
+# Return last 5 rows
+df.tail()
+
+# Return the Source Address for all rows
+df['src']
+
+# Return Src Address, Dst Address, Src Port, Dst Port
+df[['src','dst','sport','payload','payload_raw','len']]
+##################################
+m=df.shape[0]
+print(m)
+np_matrix=df.as_matrix()
+print(np_matrix.shape)
+##############################
+#SAE and CNN Definition:
+
+import torch
+from torch import nn
+class DeepPacketCNN(nn.Module):
+    def __init__(self, n_classes):
+        super(DeepPacketCNN, self).__init__()
+        self.conv1 = nn.Conv1d(1, 200, 5, 2, 0)
+        self.bn1 = nn.BatchNorm1d(200)
+        self.relu = nn.ReLU(inplace=True)
+
+        self.conv2 = nn.Conv1d(1, 100, 4, 1, 0)
+        self.conv2 = nn.Conv1d(200, 100, 4, 1, 0)
+        self.bn2 = nn.BatchNorm1d(100)
+
+        self.pool = nn.AvgPool1d(2)
+        self.dropout = nn.Dropout(p=0.25)
+        self.fc1 = nn.Sequential(nn.Linear(100 * 372, 600),
+                                 nn.Dropout(p=0.25), nn.ReLU(True)
+                                 )
+        self.fc2 = nn.Sequential(nn.Linear(600, 500),
+                                 nn.Dropout(p=0.25), nn.ReLU(True)
+                                 )
+        self.fc3 = nn.Sequential(nn.Linear(500, 400),
+                                 nn.Dropout(p=0.25), nn.ReLU(True)
+                                 )
+        self.fc4 = nn.Sequential(nn.Linear(400, 300),
+                                 nn.Dropout(p=0.25), nn.ReLU(True)
+                                 )
+        self.fc5 = nn.Sequential(nn.Linear(300, 200),
+                                 nn.Dropout(p=0.25), nn.ReLU(True)
+                                 )
+        self.fc6 = nn.Sequential(nn.Linear(200, 100),
+                                 nn.Dropout(p=0.25), nn.ReLU(True)
+                                 )
+        self.fc7 = nn.Sequential(nn.Linear(100, 50),
+                                 nn.Dropout(p=0.25), nn.ReLU(True)
+                                 )
+        self.fc_out = nn.Linear(50, n_classes)
+        self.lsm = nn.LogSoftmax(dim=0)
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = self.relu(x)
+        x = self.pool(x).view(-1)
+        x = self.fc1(x)
+        x = self.fc2(x)
+        x = self.fc3(x)
+        x = self.fc4(x)
+        x = self.fc5(x)
+        x = self.fc6(x)
+        x = self.fc7(x)
+        x = self.fc_out(x)
+        y = self.lsm(x)
+        return y
+class AutoEncoder(nn.Module):
+    def __init__(self, input_size, output_size):
+        super(AutoEncoder, self).__init__()
+        self.forward_pass = nn.Sequential(nn.Linear(input_size, output_size),
+                                          nn.Dropout(p=0.05),
+                                          nn.ReLU(True)
+                                          )
+
+        self.backward_pass = nn.Linear(input_size, output_size)
+        self.backward_pass = nn.Linear(output_size, input_size)
+
+        self.criterion = nn.MSELoss()
+        self.optimizer = torch.optim.SGD(self.parameters(), lr=0.1)
+    def forward(self, x):
+        x = x.detach()
+        y = self.forward_pass(x)
+        if self.training:
+            x_reconstruct = self.backward_pass(y)
+            loss = self.criterion(x_reconstruct, x.data)
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+        return y.detach()
+class StackedAutoEncoder(nn.Module):
+    def __init__(self, n_classes):
+        super(StackedAutoEncoder, self).__init__()
+        self.ae1 = AutoEncoder(1500, 400)
+        self.ae2 = AutoEncoder(400, 300)
+        self.ae3 = AutoEncoder(300, 200)
+        self.ae4 = AutoEncoder(200, 100)
+        self.ae5 = AutoEncoder(100, 50)
+        self.fc_out = nn.Linear(50, n_classes)
+        self.lsm = nn.LogSoftmax(dim=0)
+    def forward(self, x):
+        x = self.ae1(x)
+        x = self.ae2(x)
+        x = self.ae3(x)
+        x = self.ae4(x)
+        x = self.ae5(x)
+        y = self.fc_out(x)
+        y = self.lsm(y)
+        return y
